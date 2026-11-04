@@ -1618,6 +1618,68 @@ export interface ScriptListV3Type {
   }[];
 }
 
+export interface PermissionSetV3Type {
+  /** What the grant is attached to. */
+  entity: 'table' | 'field';
+  /** Table ID for entity `table`, field ID for entity `field`. */
+  entity_id: string;
+  /** `TABLE_*` keys attach to a table, `RECORD_FIELD_EDIT` to a field. */
+  permission:
+    | 'TABLE_VISIBILITY'
+    | 'TABLE_RECORD_ADD'
+    | 'TABLE_RECORD_DELETE'
+    | 'RECORD_FIELD_EDIT';
+  /** `role`: a minimum base role. `user`: only the listed subjects. `nobody`: no one. */
+  granted_type: 'role' | 'user' | 'nobody';
+  /** Minimum role. Required with `granted_type` `role` and rejected otherwise. To restrict to owners, use `granted_type` `user`. */
+  granted_role?: 'creator' | 'editor';
+  /** Users and teams allowed. Required (non-empty) with `granted_type` `user`, rejected otherwise. Give each by `id`, or a user by `email`. */
+  subjects?: {
+    type: 'user' | 'team';
+    id?: string;
+    /** @format email */
+    email?: string;
+    /** Team subjects only: whether the grant covers just that team or its sub-teams too. */
+    hierarchy_scope?: 'self_only' | 'self_and_descendants';
+  }[];
+  /** Also enforce for automations. */
+  enforce_for_automation?: boolean;
+  /** Also enforce for form submissions. */
+  enforce_for_form?: boolean;
+}
+
+export interface PermissionListV3Type {
+  list: PermissionV3Type[];
+}
+
+export interface PermissionV3Type {
+  /** Unique identifier for the grant. */
+  id?: string;
+  /** What the grant is attached to. */
+  entity?: 'table' | 'field';
+  /** Table ID or field ID. */
+  entity_id?: string;
+  /** `TABLE_*` keys attach to a table, `RECORD_FIELD_EDIT` to a field. */
+  permission?:
+    | 'TABLE_VISIBILITY'
+    | 'TABLE_RECORD_ADD'
+    | 'TABLE_RECORD_DELETE'
+    | 'RECORD_FIELD_EDIT';
+  /** `role`: a minimum base role. `user`: only the listed subjects. `nobody`: no one. */
+  granted_type?: 'role' | 'user' | 'nobody';
+  /** Minimum role for a role grant, else null. */
+  granted_role?: string | null;
+  subjects?: {
+    type?: 'user' | 'team' | 'appTeam' | 'agent';
+    id?: string;
+    /** Team subjects only: whether the grant covers just that team or its sub-teams too. */
+    hierarchy_scope?: 'self_only' | 'self_and_descendants';
+  }[];
+  enforce_for_automation?: boolean;
+  enforce_for_form?: boolean;
+  created_by?: string;
+}
+
 /**
  * Bulk delete base team requests for v3 API
  */
@@ -3845,7 +3907,8 @@ export type ViewV3Type = {
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -3863,7 +3926,8 @@ export type ViewV3Type = {
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -3881,7 +3945,8 @@ export type ViewV3Type = {
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -3899,7 +3964,8 @@ export type ViewV3Type = {
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -3918,7 +3984,8 @@ export type ViewV3Type = {
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -3937,7 +4004,8 @@ export type ViewV3Type = {
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -3955,7 +4023,8 @@ export type ViewV3Type = {
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -3985,7 +4054,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4003,7 +4073,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4021,7 +4092,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4039,7 +4111,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4058,7 +4131,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4077,7 +4151,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4095,7 +4170,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4110,7 +4186,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4131,7 +4208,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4148,7 +4226,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4165,7 +4244,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4182,7 +4262,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4200,7 +4281,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4218,7 +4300,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4235,7 +4318,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4249,7 +4333,8 @@ export type ViewUpdateV3Type = ViewBaseInUpdateV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4273,7 +4358,8 @@ export type ViewCreateV3Type = ViewBaseV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4291,7 +4377,8 @@ export type ViewCreateV3Type = ViewBaseV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4309,7 +4396,8 @@ export type ViewCreateV3Type = ViewBaseV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4327,7 +4415,8 @@ export type ViewCreateV3Type = ViewBaseV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4346,7 +4435,8 @@ export type ViewCreateV3Type = ViewBaseV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4365,7 +4455,8 @@ export type ViewCreateV3Type = ViewBaseV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4383,7 +4474,8 @@ export type ViewCreateV3Type = ViewBaseV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4398,7 +4490,8 @@ export type ViewCreateV3Type = ViewBaseV3Type &
          * List of fields to be displayed in the view.
          *
          * - If not specified, all fields are displayed by default.
-         * - If an empty array is provided, only the display value field will be shown.
+         * - If an empty array is provided, only the display value field will be shown (form views hide it as well).
+         * - On every view type except form the display value field is pinned visible, so its position in the list is not applied.
          * - In case of partial list, fields not included in the list will be excluded from the view.
          * - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
          */
@@ -4611,7 +4704,8 @@ export type ViewRowColourV3Type =
 * List of fields to be displayed in the view. 
 
 - If not specified, all fields are displayed by default.
-- If an empty array is provided, only the display value field will be shown.
+- If an empty array is provided, only the display value field will be shown (form views hide it as well).
+- On every view type except form the display value field is pinned visible, so its position in the list is not applied.
 - In case of partial list, fields not included in the list will be excluded from the view.
 - A `field_id` that does not exist on the table is rejected with `422` (`ERR_FIELD_NOT_FOUND`).
 */
