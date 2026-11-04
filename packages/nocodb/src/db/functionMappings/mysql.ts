@@ -8,12 +8,28 @@ import commonFns, {
   validateDateAddUnit,
 } from './commonFns';
 import type { MapFnArgs } from '../mapFunctionName';
+import type { WorkdaySqlDialect } from '~/db/functionMappings/workday';
 import { convertUnits } from '~/helpers/convertUnits';
 import {
   getWeekdayByText,
   getWeekStartOffsetSunday,
 } from '~/helpers/formulaFnHelper';
 import { getDatetimeFormatHandler } from '~/db/datetime-format';
+import { workdayDiffFn, workdayFn } from '~/db/functionMappings/workday';
+
+const mysqlWorkdayDialect: WorkdaySqlDialect = {
+  dayNumber: (sql) => `DATEDIFF(${sql}, '1900-01-01')`,
+  fromDayNumber: (sql) => `DATE_ADD(DATE '1900-01-01', INTERVAL (${sql}) DAY)`,
+  dateLiteral: (isoDate) => `DATE '${isoDate}'`,
+  intDiv: (a, b) => `(${a} DIV ${b})`,
+  mod: (a, b) => `MOD(${a}, ${b})`,
+  // TRUNCATE reads a text value's leading number
+  toInteger: (sql) => `CAST(TRUNCATE(${sql}, 0) AS SIGNED)`,
+  // Splits via JSON_TABLE. Any character a valid entry can't hold becomes `x`,
+  // so the built JSON array is always valid and such an entry is ignored.
+  holidayDays: (sql) =>
+    `(SELECT CASE WHEN wdt.t REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' AND DATE_FORMAT(STR_TO_DATE(wdt.t, '%Y-%m-%d'), '%Y-%m-%d') = wdt.t THEN DATEDIFF(STR_TO_DATE(wdt.t, '%Y-%m-%d'), '1900-01-01') END AS hn FROM (SELECT TRIM(wdj.t) AS t FROM JSON_TABLE(CONCAT('["', REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(CAST(${sql} AS CHAR), '[[:space:]]', ' '), '[^0-9, -]', 'x'), ',', '","'), '"]'), '$[*]' COLUMNS (t VARCHAR(255) PATH '$')) wdj) wdt)`,
+};
 
 const mysql2 = {
   ...commonFns,
@@ -143,6 +159,8 @@ const mysql2 = {
       ),
     };
   },
+  WORKDAY: workdayFn(mysqlWorkdayDialect),
+  WORKDAY_DIFF: workdayDiffFn(mysqlWorkdayDialect),
   WEEKDAY: async ({ fn, knex, pt }: MapFnArgs) => {
     // WEEKDAY() returns an index from 0 to 6 for Monday to Sunday
     return {

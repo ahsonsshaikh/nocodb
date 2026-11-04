@@ -1,5 +1,5 @@
 import { isLinksOrLTAR, UITypes } from 'nocodb-sdk';
-import type { NcContext } from 'nocodb-sdk';
+import type { ColumnType, NcContext } from 'nocodb-sdk';
 import type { MetaService } from '~/meta/meta.service';
 import {
   Column,
@@ -132,4 +132,37 @@ export async function getRelatedModelMap(
   }
 
   return relatedModels;
+}
+
+// getMeta for formula validation — `{Link}.{Link}.{Field}` paths can reach
+// tables outside the map
+export function getRelatedModelResolver(
+  context: NcContext,
+  relatedModels: Map<string, Model>,
+) {
+  return async (ctx: Partial<NcContext>, { id }: { id: string }) => {
+    if (relatedModels.has(id)) return relatedModels.get(id);
+    const model = await Model.get(
+      { ...context, base_id: ctx?.base_id || context.base_id },
+      id,
+    );
+    if (model) {
+      await model.getColumns();
+      relatedModels.set(id, model);
+    }
+    return model;
+  };
+}
+
+// Columns of the table a link points to, for storing `{Link}.{Field}` by id
+export function getLinkedColumnsResolver(context: NcContext) {
+  return async (linkColumn: ColumnType) => {
+    const column =
+      linkColumn instanceof Column
+        ? linkColumn
+        : await Column.get(context, { colId: linkColumn.id });
+    const relation = await column?.getColOptions<LinkToAnotherRecordColumn>();
+    const relatedTable = await relation?.getRelatedTable();
+    return relatedTable?.getColumns();
+  };
 }

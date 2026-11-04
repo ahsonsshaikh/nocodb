@@ -38,7 +38,6 @@ import {
   RelationTypes,
   SqlUiFactory,
   substituteColumnAliasWithIdInFormula,
-  substituteColumnIdWithAliasInFormula,
   UITypes,
   validateFormulaAndExtractTreeWithType,
   WebhookActions,
@@ -155,7 +154,12 @@ import NocoCache from '~/cache/NocoCache';
 import NocoSocket from '~/socket/NocoSocket';
 import { DBErrorExtractor } from '~/helpers/db-error/extractor';
 import { MetaDependencyEventHandler } from '~/services/meta-dependency/event-handler.service';
-import { getRelatedModelMap } from '~/utils/getRelatedModelMap';
+import { renameColumnInFormulaRaw } from '~/helpers/formulaHelpers';
+import {
+  getLinkedColumnsResolver,
+  getRelatedModelMap,
+  getRelatedModelResolver,
+} from '~/utils/getRelatedModelMap';
 import { validateColumnInternalMeta } from '~/types/column-internal-meta';
 import { backfillAutoNumber } from '~/helpers/autonumberHelpers';
 import { getModelContext, setModelContext } from '~/helpers/modelContext';
@@ -673,16 +677,25 @@ export class ColumnsService implements IColumnsService {
         oldColumn.title = colBody.title;
         for (const f of formulas) {
           // replace column IDs with alias to get the new formula_raw
-          const new_formula_raw = substituteColumnIdWithAliasInFormula(
-            f.formula,
-            [oldColumn],
-          );
+          const renamedRaw = f.formula_raw
+            ? renameColumnInFormulaRaw({
+                formula: f.formula,
+                formulaRaw: f.formula_raw,
+                columnId: oldColumn.id,
+                title: oldColumn.title,
+              })
+            : null;
 
-          // update the formula_raw and set parsed_tree to null to reparse the formula
-          await FormulaColumn.update(context, oldColumn.id, {
-            formula_raw: new_formula_raw,
-            parsed_tree: null,
-          });
+          // update the formula_raw and set parsed_tree to null to reparse the formula;
+          // keep formula_raw as is when it can't be renamed reliably
+          await FormulaColumn.update(
+            { ...context, base_id: f.base_id ?? context.base_id },
+            f.fk_column_id,
+            {
+              ...(renamedRaw ? { formula_raw: renamedRaw } : {}),
+              parsed_tree: null,
+            },
+          );
         }
       }
     }
@@ -1692,15 +1705,14 @@ export class ColumnsService implements IColumnsService {
             colBody.formula = await substituteColumnAliasWithIdInFormula(
               colBody.formula_raw || colBody.formula,
               table.columns,
+              getLinkedColumnsResolver(context),
             );
             colBody.parsed_tree = await validateFormulaAndExtractTreeWithType({
               formula: colBody.formula || colBody.formula_raw,
               columns: formulaColumns,
               column,
               clientOrSqlUi: source.type as any,
-              getMeta: async (_, { id }) => {
-                return relatedModels.get(id);
-              },
+              getMeta: getRelatedModelResolver(context, relatedModels),
             });
 
             const baseModel = await reuseOrSave('baseModel', reuse, async () =>
@@ -1793,15 +1805,14 @@ export class ColumnsService implements IColumnsService {
             colBody.formula = await substituteColumnAliasWithIdInFormula(
               colBody.formula_raw || colBody.formula,
               table.columns,
+              getLinkedColumnsResolver(context),
             );
             colBody.parsed_tree = await validateFormulaAndExtractTreeWithType({
               formula: colBody.formula || colBody.formula_raw,
               columns: buttonFormulaColumns,
               column,
               clientOrSqlUi: source.type as any,
-              getMeta: async (_, { id }) => {
-                return relatedModels.get(id);
-              },
+              getMeta: getRelatedModelResolver(context, relatedModels),
             });
 
             try {
@@ -1886,6 +1897,14 @@ export class ColumnsService implements IColumnsService {
           if (colBody.title && colBody.title !== column.title) {
             await Column.updateAlias(context, param.columnId, {
               title: colBody.title,
+            });
+            // e.g. a renamed link used as a hop in `{Link}.{Field}`
+            await this.updateFormulas(context, {
+              oldColumn: { ...column },
+              colBody: {
+                title: colBody.title,
+                column_name: column.column_name,
+              },
             });
           }
           if (
@@ -4636,6 +4655,7 @@ export class ColumnsService implements IColumnsService {
           colBody.formula = await substituteColumnAliasWithIdInFormula(
             colBody.formula_raw || colBody.formula,
             table.columns,
+            getLinkedColumnsResolver(context),
           );
           colBody.parsed_tree = await validateFormulaAndExtractTreeWithType({
             // formula may include double curly brackets in previous version
@@ -4647,9 +4667,7 @@ export class ColumnsService implements IColumnsService {
             },
             columns: formulaColumns,
             clientOrSqlUi: source.type as any,
-            getMeta: async (_, { id }) => {
-              return relatedModels.get(id);
-            },
+            getMeta: getRelatedModelResolver(context, relatedModels),
           });
 
           const baseModel = await reuseOrSave('baseModel', reuse, async () =>
@@ -4709,6 +4727,7 @@ export class ColumnsService implements IColumnsService {
             colBody.formula = await substituteColumnAliasWithIdInFormula(
               colBody.formula_raw || colBody.formula,
               table.columns,
+              getLinkedColumnsResolver(context),
             );
             colBody.parsed_tree = await validateFormulaAndExtractTreeWithType({
               formula: colBody.formula,
@@ -4718,9 +4737,7 @@ export class ColumnsService implements IColumnsService {
                 colOptions: colBody,
               },
               clientOrSqlUi: source.type as any,
-              getMeta: async (_, { id }) => {
-                return relatedModels.get(id);
-              },
+              getMeta: getRelatedModelResolver(context, relatedModels),
             });
 
             const baseModel = await reuseOrSave('baseModel', reuse, async () =>

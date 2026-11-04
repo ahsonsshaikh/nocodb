@@ -28,6 +28,7 @@ import { RowColorViewHelpers } from '~/helpers/rowColorViewHelpers';
 import { sanitizeColumnName } from '~/helpers';
 import { sanitizeCommentBody } from '~/helpers/sanitizeCommentBody';
 import { NcError } from '~/helpers/catchError';
+import { repairCopiedViewTitles } from '~/helpers/viewTitleHelpers';
 import {
   copyFormImages,
   dropUnheldAttachments,
@@ -1848,6 +1849,7 @@ export class ImportService {
 
       // get default view
       await table.getViews();
+      repairCopiedViewTitles(viewsData);
       for (const view of viewsData) {
         const viewTask = vieProcessQueue.add(async () => {
           const viewData = withoutId({

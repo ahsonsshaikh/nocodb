@@ -199,7 +199,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     // MCP routes keep status and headers but answer in JSON-RPC
     if (isMcpEndpoint(request.path)) {
-      return response.status(mapped.status).json(toJsonRpcError(mapped.body));
+      return response
+        .status(mapped.status)
+        .json(toJsonRpcError(mapped.body, request.body));
     }
 
     return response.status(mapped.status).json(mapped.body);

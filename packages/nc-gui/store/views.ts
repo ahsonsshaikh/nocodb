@@ -483,7 +483,8 @@ export const useViewsStore = defineStore('viewsStore', () => {
             },
             {
               ...commonFields,
-              ...getDefaultViewMetas(ViewTypes.FORM),
+              // A duplicate keeps the source form's settings
+              ...(form.copy_from_id ? {} : getDefaultViewMetas(ViewTypes.FORM)),
             },
           )
           break

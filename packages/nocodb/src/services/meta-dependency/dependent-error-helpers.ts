@@ -26,6 +26,7 @@ import {
   Source,
 } from '~/models';
 import addFormulaErrorIfMissingColumn from '~/helpers/addFormulaErrorIfMissingColumn';
+import { getFormulaColumnRefs } from '~/helpers/formulaHelpers';
 import { invalidateSingleQueryCacheForModels } from '~/helpers/metaCacheInvalidator';
 import { getRelatedModelMap } from '~/utils/getRelatedModelMap';
 import NocoSocket from '~/socket/NocoSocket';
@@ -368,6 +369,21 @@ async function dependentStillBroken(
           title: other.title,
         });
         if (modified) return true;
+      }
+
+      // hops and targets of `{Link}.{Field}` paths live in other tables,
+      // possibly other bases
+      const refIds = getFormulaColumnRefs(
+        (opts as FormulaColumn | ButtonColumn).formula,
+      );
+      if (refIds.length) {
+        const trashedRef = await ncMeta
+          .knex(MetaTable.COLUMNS)
+          .where('fk_workspace_id', ctx.workspace_id)
+          .whereIn('id', refIds)
+          .where('deleted', true)
+          .first('id');
+        if (trashedRef) return true;
       }
       return false;
     }

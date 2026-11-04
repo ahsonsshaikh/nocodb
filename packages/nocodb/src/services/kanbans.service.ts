@@ -26,6 +26,7 @@ import { assertNotLaneInstance } from '~/helpers/environmentGuards';
 import { NcError } from '~/helpers/catchError';
 import { assertViewConfigEditable } from '~/helpers/viewLockHelpers';
 import { claimObjectTitle } from '~/helpers/customObjects';
+import { normalizeViewTitle } from '~/helpers/viewTitleHelpers';
 import { TraceCommand } from '~/decorators/trace-command.decorator';
 import { OperationName } from '~/command-registry/op-names';
 import { KanbanView, Model, User, View } from '~/models';
@@ -96,7 +97,7 @@ export class KanbansService {
       }
     }
 
-    param.kanban.title = param.kanban.title?.trim();
+    param.kanban.title = normalizeViewTitle(context, param.kanban.title);
 
     param.kanban.title = await claimObjectTitle(
       context,

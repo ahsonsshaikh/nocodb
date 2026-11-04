@@ -19,6 +19,7 @@ import { assertParsedTreeFunctions } from './assertParsedTreeFunctions';
 import { getLmtSyntheticFormula } from './lmtSyntheticFormula';
 import { lmbFieldQueryBuilder } from './lmbFieldQueryBuilder';
 import { lookupOrLtarBuilder } from './lookup-or-ltar-builder';
+import { dotPathBuilder } from './dot-path-builder';
 import {
   binaryExpressionBuilder,
   callExpressionBuilder,
@@ -26,9 +27,15 @@ import {
 import {
   formulaOutputsRawJson,
   getFormulaOutputMaxLength,
+  isListAggregateCall,
   wrapFormulaWithMaxLength,
 } from './formula-query-builder.helpers';
-import type { ButtonActionsType, ClientType, LiteralNode } from 'nocodb-sdk';
+import type {
+  ButtonActionsType,
+  ClientType,
+  IdentifierNode,
+  LiteralNode,
+} from 'nocodb-sdk';
 import type { Knex } from 'knex';
 import type { IBaseModelSqlV2 } from '~/db/IBaseModelSqlV2';
 import type { BarcodeColumn, Model, QrCodeColumn, User } from '~/models';
@@ -58,7 +65,10 @@ import { BaseUser, ButtonColumn, View } from '~/models';
 import FormulaColumn from '~/models/FormulaColumn';
 import LmtTrackedField from '~/models/LmtTrackedField';
 import { TelemetryHandlerService } from '~/services/telemetry-handler.service';
-import { getRelatedModelMap } from '~/utils/getRelatedModelMap';
+import {
+  getRelatedModelMap,
+  getRelatedModelResolver,
+} from '~/utils/getRelatedModelMap';
 
 const logger = new Logger('FormulaQueryBuilderv2');
 
@@ -131,9 +141,7 @@ async function _formulaQueryBuilder(params: FormulaQueryBuilderBaseParams) {
         | 'mariadb'
         | 'sqlite'
         | 'snowflake',
-      getMeta: async (_, { id }) => {
-        return relatedModels.get(id);
-      },
+      getMeta: getRelatedModelResolver(context, relatedModels),
     });
 
     // populate and save parsedTree to column if not exist
@@ -476,6 +484,25 @@ async function _formulaQueryBuilder(params: FormulaQueryBuilderBaseParams) {
     }
   }
 
+  // `{Field}` and `{Link}.{Field}` compile to a value, or for a list to a
+  // function taking the aggregate the enclosing call asks for
+  const resolveReference = async (
+    pt: FnParsedTreeNode,
+  ): Promise<{ builder?: any }> => {
+    if (pt.type === JSEPNode.MEMBER_EXP) {
+      return dotPathBuilder({ ...params, pt, knex, _formulaQueryBuilder })({
+        tableAlias,
+        parentColumns: params.parentColumns,
+      });
+    }
+    return (
+      (await aliasToColumn?.[(pt as IdentifierNode).name]?.({
+        tableAlias,
+        parentColumns: params.parentColumns,
+      })) || {}
+    );
+  };
+
   const fn = async (pt: FnParsedTreeNode, prevBinaryOp?) => {
     if (pt.type === JSEPNode.CALL_EXP) {
       pt.arguments?.forEach?.((arg: FnParsedTreeNode) => {
@@ -501,6 +528,33 @@ async function _formulaQueryBuilder(params: FormulaQueryBuilderBaseParams) {
     }
 
     if (pt.type === JSEPNode.CALL_EXP) {
+      // SUM({Tasks}.{Hours}) — aggregate the list itself, on every database
+      if (isListAggregateCall(pt)) {
+        const fnName = pt.callee.name.toUpperCase();
+        const { dataType } = pt.arguments[0];
+        // same as the scalar COUNT: only numbers count
+        if (
+          fnName === 'COUNT' &&
+          dataType &&
+          dataType !== FormulaDataTypes.NUMERIC
+        ) {
+          return { builder: knex.raw('0') };
+        }
+        const { builder } = await resolveReference(pt.arguments[0]);
+        if (typeof builder === 'function') {
+          // same as the scalar COUNTA: empty text doesn't count
+          const aggregated = builder(
+            fnName === 'COUNTA' && dataType === FormulaDataTypes.STRING
+              ? 'COUNTA_TEXT'
+              : fnName,
+          );
+          return {
+            builder: ['SUM', 'COUNT', 'COUNTA', 'COUNTALL'].includes(fnName)
+              ? knex.raw('COALESCE(??, 0)', [aggregated])
+              : aggregated,
+          };
+        }
+      }
       return await callExpressionBuilder({
         context,
         pt,
@@ -536,12 +590,8 @@ async function _formulaQueryBuilder(params: FormulaQueryBuilderBaseParams) {
         return { builder: knex.raw(pt.value ? '1' : '0') };
       }
       return { builder: knex.raw(`?`, [pt.value]) };
-    } else if (pt.type === 'Identifier') {
-      const { builder } =
-        (await aliasToColumn?.[pt.name]?.({
-          tableAlias,
-          parentColumns: params.parentColumns,
-        })) || {};
+    } else if (pt.type === 'Identifier' || pt.type === JSEPNode.MEMBER_EXP) {
+      const { builder } = await resolveReference(pt);
       if (typeof builder === 'function') {
         return { builder: knex.raw(`??`, builder(pt.fnName)) };
       }
@@ -559,7 +609,9 @@ async function _formulaQueryBuilder(params: FormulaQueryBuilderBaseParams) {
         };
       }
 
-      return { builder: knex.raw(`??`, [builder || pt.name]) };
+      return {
+        builder: knex.raw(`??`, [builder || (pt as IdentifierNode).name]),
+      };
     } else if (pt.type === 'BinaryExpression') {
       return await binaryExpressionBuilder({
         context,

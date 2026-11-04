@@ -19,6 +19,7 @@ import {
   ParsedFormulaNode,
 } from '~/lib/formula/types';
 import { handleFormulaError } from '~/lib/formula/handle-formula-error';
+import { isCurlyIdentifier } from '~/lib/formula/hooks';
 import { formulas } from '~/lib/formula/formulas';
 import { formulaJsep, formulaJsepWithIndex } from '~/lib/formula/jsepInstances';
 import { ClientTypeOrSqlUI } from '~/lib/formula/types';
@@ -31,6 +32,15 @@ import { UnifiedMetaType } from '~/lib/types';
 import { unifiedMeta } from '~/lib/unifiedMeta';
 import { getColOptions } from '~/lib/unifiedMeta/getColOptions';
 import { isBtLikeV2Junction, isMMOrMMLike } from '~/lib/UITypes';
+import {
+  buildMemberPath,
+  canBeDotPathHop,
+  findColumnByRef,
+  getMemberPath,
+  isLinkToMany,
+  LIST_AGGREGATE_FUNCTIONS,
+  MAX_DOT_PATH_HOPS,
+} from '~/lib/formula/member-path';
 
 async function extractColumnIdentifierType({
   col,
@@ -246,12 +256,18 @@ async function extractColumnIdentifierType({
           : relationColOptions.type;
         res.isDataArray = ['hm', 'mm', 'om'].includes(relationType);
       }
+      const lookupRef = lookupColumnIdentifierType?.referencedColumn;
       res.referencedColumn = {
-        id: lookupColumnIdentifierType?.referencedColumn?.id,
+        id: lookupRef?.id,
         // if array, we present it as lookup column
-        uidt: lookupColumnIdentifierType?.referencedColumn?.uidt,
+        uidt: lookupRef?.uidt,
         intermediaryUidt: UITypes.Lookup,
         intermediaryId: col.id,
+        directLookup:
+          lookupRef?.id === lookupColumn?.id ||
+          (lookupRef?.intermediaryUidt === UITypes.Lookup &&
+            lookupRef?.intermediaryId === lookupColumn?.id &&
+            !!lookupRef?.directLookup),
       };
 
       break;
@@ -786,12 +802,168 @@ export async function validateFormulaAndExtractTreeWithType({
     colIdToColMap[col.id] = col;
   }
 
+  // a single field or path argument may be a list, which is only known once typed
+  const mayBeListAggregate = (pt: CallExpressionNode) =>
+    LIST_AGGREGATE_FUNCTIONS.includes(pt.callee.name.toUpperCase()) &&
+    pt.arguments?.length === 1 &&
+    [JSEPNode.IDENTIFIER, JSEPNode.MEMBER_EXP].includes(pt.arguments[0].type);
+
+  const unsupportedFnError = (calleeName: string, parsedTree: any) =>
+    new FormulaError(
+      FormulaErrorType.INVALID_FUNCTION_NAME,
+      {
+        calleeName,
+        position:
+          parsedTree.indexStart >= 0
+            ? { index: parsedTree.indexStart, length: parsedTree.nodeLength }
+            : undefined,
+      },
+      `Function ${calleeName} is unavailable for your database`
+    );
+
+  // `{Link}.{Link}.{Field}` — follow links hop by hop, then type the last field
+  const validateMemberPath = async (
+    parsedTree: ParsedFormulaNode
+  ): Promise<ParsedFormulaNode> => {
+    const path = getMemberPath(parsedTree);
+    // `{Hours}.SUM` or `{Hours}.SUMX` — a method name after a field
+    const { object, property } = parsedTree as any;
+    // Storing braces every name, so `a.b` arrives as `{a}.b` — only a known
+    // field counts
+    const isFieldRef = (node: any) =>
+      isCurlyIdentifier(node) &&
+      !!(colIdToColMap[node.name] || colAliasToColMap[node.name]);
+    if (
+      !path &&
+      property?.type === JSEPNode.IDENTIFIER &&
+      !isCurlyIdentifier(property) &&
+      (isFieldRef(object) || getMemberPath(object))
+    ) {
+      const calleeName = String(property.name).toUpperCase();
+      if (formulas[calleeName]) {
+        throw new FormulaError(
+          FormulaErrorType.INVALID_SYNTAX,
+          { key: 'msg.formula.formulaMissingParentheses', calleeName },
+          `Missing parentheses after function name "${calleeName}"`
+        );
+      }
+      throw new FormulaError(
+        FormulaErrorType.INVALID_FUNCTION_NAME,
+        { calleeName },
+        `Function ${calleeName} is not available`
+      );
+    }
+    if (!path) {
+      throw new FormulaError(
+        FormulaErrorType.NOT_SUPPORTED,
+        {},
+        'Only field references like {Link}.{Field} can be joined with "."'
+      );
+    }
+    if (path.length - 1 > MAX_DOT_PATH_HOPS) {
+      throw new FormulaError(
+        FormulaErrorType.NOT_SUPPORTED,
+        { key: 'msg.formula.dotPathTooDeep', maxHops: MAX_DOT_PATH_HOPS },
+        `A field path can follow at most ${MAX_DOT_PATH_HOPS} links`
+      );
+    }
+
+    const resolvedPath = [];
+    let tableColumns: UnifiedMetaType.IColumn[] = allColumns;
+    let isDataArray = false;
+
+    for (let i = 0; i < path.length; i++) {
+      const ref = path[i].name;
+      const col =
+        i === 0
+          ? colIdToColMap[ref] || colAliasToColMap[ref]
+          : findColumnByRef(tableColumns, ref);
+
+      if (!col) {
+        throw new FormulaError(
+          FormulaErrorType.INVALID_COLUMN,
+          { key: 'msg.formula.columnNotAvailable', columnName: ref },
+          `Invalid column name/id ${JSON.stringify(ref)} in formula`
+        );
+      }
+
+      resolvedPath.push({
+        type: JSEPNode.IDENTIFIER,
+        name: col.id,
+        raw: `{${col.id}}`,
+      });
+
+      if (i === path.length - 1) {
+        const identifierType = await extractColumnIdentifierType({
+          col,
+          columns: tableColumns,
+          getMeta,
+          clientOrSqlUi,
+        });
+        return {
+          ...buildMemberPath(resolvedPath),
+          dataType: identifierType.dataType,
+          isDataArray: isDataArray || !!identifierType.isDataArray,
+          referencedColumn: {
+            id: identifierType.referencedColumn?.id,
+            uidt: identifierType.referencedColumn?.uidt,
+          },
+        };
+      }
+
+      if (!canBeDotPathHop(col)) {
+        throw new FormulaError(
+          FormulaErrorType.INVALID_SYNTAX,
+          { key: 'msg.formula.dotPathNotALink', columnName: col.title },
+          `Field ${col.title} is not a link, so "." cannot follow it`
+        );
+      }
+
+      const colContext = unifiedMeta.getContextFromObject(col);
+      const colOptions =
+        (await unifiedMeta.getColOptions<UnifiedMetaType.ILinkToAnotherRecordColumn>(
+          colContext,
+          { column: col }
+        )) ??
+        (await col.getColOptions?.<UnifiedMetaType.ILinkToAnotherRecordColumn>());
+      const relatedTable = await unifiedMeta.getLTARRelatedTable(colContext, {
+        colOptions,
+        getMeta,
+      });
+      tableColumns = await unifiedMeta.getColumns(
+        unifiedMeta.getContextFromObject(relatedTable),
+        { model: relatedTable }
+      );
+      if (!tableColumns) {
+        throw new FormulaError(
+          FormulaErrorType.INVALID_COLUMN,
+          { key: 'msg.formula.columnNotAvailable', columnName: col.title },
+          `Linked table of ${col.title} is not available`
+        );
+      }
+      isDataArray = isDataArray || isLinkToMany(col, colOptions);
+    }
+    // unreachable, the last path segment returns above
+    return undefined;
+  };
+
   const validateAndExtract = async (
     parsedTree: ParsedFormulaNode
   ): Promise<ParsedFormulaNode> => {
     const res: ParsedFormulaNode = { ...parsedTree };
 
     if (parsedTree.type === JSEPNode.CALL_EXP) {
+      if (
+        parsedTree.callee?.type !== JSEPNode.IDENTIFIER ||
+        typeof parsedTree.callee.name !== 'string' ||
+        isCurlyIdentifier(parsedTree.callee)
+      ) {
+        throw new FormulaError(
+          FormulaErrorType.INVALID_SYNTAX,
+          {},
+          'Only functions can be called'
+        );
+      }
       const calleeName = (
         parsedTree.callee as IdentifierNode
       ).name.toUpperCase();
@@ -811,21 +983,11 @@ export async function validateFormulaAndExtractTreeWithType({
           },
           `Function ${calleeName} is not available`
         );
-      } else if (sqlUI?.getUnsupportedFnList().includes(calleeName)) {
-        throw new FormulaError(
-          FormulaErrorType.INVALID_FUNCTION_NAME,
-          {
-            calleeName,
-            position:
-              (parsedTree as any).indexStart >= 0
-                ? {
-                    index: (parsedTree as any).indexStart,
-                    length: (parsedTree as any).nodeLength,
-                  }
-                : undefined,
-          },
-          `Function ${calleeName} is unavailable for your database`
-        );
+      } else if (
+        sqlUI?.getUnsupportedFnList().includes(calleeName) &&
+        !mayBeListAggregate(parsedTree as CallExpressionNode)
+      ) {
+        throw unsupportedFnError(calleeName, parsedTree);
       }
 
       // validate arguments
@@ -902,6 +1064,18 @@ export async function validateFormulaAndExtractTreeWithType({
           })
         ));
       const argTypes = validateResult.map((v: any) => v.dataType);
+
+      // COUNT etc. on a list compile to a plain SQL aggregate on any database
+      if (
+        sqlUI?.getUnsupportedFnList().includes(calleeName) &&
+        !(
+          LIST_AGGREGATE_FUNCTIONS.includes(calleeName) &&
+          validateResult.length === 1 &&
+          validateResult[0].isDataArray
+        )
+      ) {
+        throw unsupportedFnError(calleeName, parsedTree);
+      }
 
       // if validation function is present, call it
       if (formulas[calleeName].validation?.custom) {
@@ -1195,11 +1369,7 @@ export async function validateFormulaAndExtractTreeWithType({
         })
       );
     } else if (parsedTree.type === JSEPNode.MEMBER_EXP) {
-      throw new FormulaError(
-        FormulaErrorType.NOT_SUPPORTED,
-        {},
-        'Bracket notation is not supported'
-      );
+      return await validateMemberPath(parsedTree);
     } else if (parsedTree.type === JSEPNode.ARRAY_EXP) {
       throw new FormulaError(
         FormulaErrorType.NOT_SUPPORTED,

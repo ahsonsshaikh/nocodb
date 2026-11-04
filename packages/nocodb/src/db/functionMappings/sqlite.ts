@@ -12,12 +12,35 @@ import commonFns, {
   validateDateAddUnit,
 } from './commonFns';
 import type { MapFnArgs } from '../mapFunctionName';
+import type { WorkdaySqlDialect } from '~/db/functionMappings/workday';
 import { convertUnits } from '~/helpers/convertUnits';
 import {
   getWeekdayByText,
   getWeekStartOffsetSunday,
 } from '~/helpers/formulaFnHelper';
 import { getDatetimeFormatHandler } from '~/db/datetime-format';
+import { workdayDiffFn, workdayFn } from '~/db/functionMappings/workday';
+
+// julianday('1900-01-01')
+const SQLITE_JULIAN_1900 = 2415020.5;
+const SQLITE_BLANKS = `' ' || char(9, 10, 13)`;
+
+const sqliteWorkdayDialect: WorkdaySqlDialect = {
+  dayNumber: (sql) =>
+    `CAST(round(julianday(date(${sql})) - ${SQLITE_JULIAN_1900}) AS INTEGER)`,
+  fromDayNumber: (sql) => `date(${SQLITE_JULIAN_1900} + (${sql}))`,
+  dateLiteral: (isoDate) => `'${isoDate}'`,
+  intDiv: (a, b) => `(${a} / ${b})`,
+  mod: (a, b) => `(${a} % ${b})`,
+  // CAST takes the leading number of a text value and truncates toward zero
+  toInteger: (sql) => `CAST(${sql} AS INTEGER)`,
+  // splits on commas with a recursive CTE; the julianday round trip keeps
+  // real dates only (date() alone accepts e.g. 2026-02-30)
+  holidayDays: (sql) =>
+    `(WITH RECURSIVE wds(t, r) AS (SELECT NULL, CAST(${sql} AS TEXT) || ',' UNION ALL SELECT trim(substr(r, 1, instr(r, ',') - 1), ${SQLITE_BLANKS}), substr(r, instr(r, ',') + 1) FROM wds WHERE r <> '') SELECT CASE WHEN length(t) = 10 AND date(julianday(t)) = t THEN CAST(round(julianday(t) - ${SQLITE_JULIAN_1900}) AS INTEGER) END AS hn FROM wds)`,
+  // the flattener skips a subquery with an OFFSET
+  noInline: ' LIMIT -1 OFFSET 0',
+};
 
 const sqlite3 = {
   ...commonFns,
@@ -247,6 +270,8 @@ const sqlite3 = {
       ),
     };
   },
+  WORKDAY: workdayFn(sqliteWorkdayDialect),
+  WORKDAY_DIFF: workdayDiffFn(sqliteWorkdayDialect),
   WEEKDAY: async ({ fn, knex, pt }: MapFnArgs) => {
     // strftime('%w', date) - day of week 0 - 6 with Sunday == 0
     // WEEKDAY() returns an index from 0 to 6 for Monday to Sunday

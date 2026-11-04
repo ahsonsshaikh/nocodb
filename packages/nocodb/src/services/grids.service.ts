@@ -15,6 +15,7 @@ import { assertNotLaneInstance } from '~/helpers/environmentGuards';
 import { NcError } from '~/helpers/catchError';
 import { assertViewConfigEditable } from '~/helpers/viewLockHelpers';
 import { claimObjectTitle } from '~/helpers/customObjects';
+import { normalizeViewTitle } from '~/helpers/viewTitleHelpers';
 import { TraceCommand } from '~/decorators/trace-command.decorator';
 import { OperationName } from '~/command-registry/op-names';
 import { GridView, Model, User, View } from '~/models';
@@ -59,7 +60,7 @@ export class GridsService {
     const model = await Model.get(context, param.tableId, false, ncMeta);
 
     // check for duplicated view title
-    param.grid.title = param.grid.title?.trim();
+    param.grid.title = normalizeViewTitle(context, param.grid.title);
 
     param.grid.title = await claimObjectTitle(
       context,

@@ -24,6 +24,7 @@ import {
 } from '~/helpers/attachmentHelpers';
 import { extractProps } from '~/helpers/extractProps';
 import { claimObjectTitle } from '~/helpers/customObjects';
+import { normalizeViewTitle } from '~/helpers/viewTitleHelpers';
 import { TraceCommand } from '~/decorators/trace-command.decorator';
 import { OperationName } from '~/command-registry/op-names';
 import { FormView, Model, Source, User, View } from '~/models';
@@ -105,7 +106,7 @@ export class FormsService {
       NcError.get(context).sourceDataReadOnly(source.alias);
     }
 
-    param.body.title = param.body.title?.trim();
+    param.body.title = normalizeViewTitle(context, param.body.title);
 
     param.body.title = await claimObjectTitle(
       context,

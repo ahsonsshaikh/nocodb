@@ -91,6 +91,19 @@ export async function getViewAndModelByAliasOrId(
   return { model, view };
 }
 
+// Same pattern as nc-gui `replaceUrlsWithLink`: the URL() formula emits
+// `URI::( url ) LABEL::( label )`, with `(`/`)` escaped inside the content.
+const FORMULA_URL_RE =
+  /URI::\(((?:[^()]|\\\)|\\\()*[^\\]|)\)(?:\s*LABEL::\(((?:[^()]|\\\)|\\\()*[^\\]|)\))?/g;
+
+// Exports keep the URL rather than the label, so the link is not lost.
+export function stripFormulaUrlMarkup(value: string) {
+  return value.replace(FORMULA_URL_RE, (_, url: string, label?: string) => {
+    const unescape = (s: string) => s.trim().replace(/\\([()])/g, '$1');
+    return unescape(url) || (label ? unescape(label) : '');
+  });
+}
+
 export async function serializeCellValue(
   context: NcContext,
   {
@@ -273,6 +286,23 @@ export async function serializeCellValue(
         return value;
       }
       return convertMS2Duration(value, column.meta.duration);
+    }
+    case UITypes.Formula:
+      if (typeof value === 'string') return stripFormulaUrlMarkup(value);
+      // Array formulas (pg) return arrays; keep `default`'s JSON output
+      if (typeof value === 'object') return JSON.stringify(value);
+      return value;
+    case UITypes.Button: {
+      const data = typeof value === 'string' ? parseHelper(value) : value;
+      if (data && typeof data === 'object') {
+        // Same as grid copy: URL for Open URL buttons, label otherwise
+        return (
+          (data.type === 'url'
+            ? data.url
+            : data.label ?? column.colOptions?.label) ?? ''
+        );
+      }
+      return value;
     }
     case UITypes.LongText: {
       // If it is AI text field then just return value instead of whole json

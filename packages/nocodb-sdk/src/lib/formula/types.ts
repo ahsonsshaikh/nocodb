@@ -14,6 +14,8 @@ export interface ReferencedInfo {
     uidt: string;
     intermediaryUidt?: string;
     intermediaryId?: string;
+    // Lookup only: values are the referenced field's own, with no formula hop
+    directLookup?: boolean;
   };
   invalidForReferenceColumn?: boolean;
   uidtCandidates?: UITypes[];
